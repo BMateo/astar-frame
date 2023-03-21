@@ -201,6 +201,18 @@ pub mod pallet {
     pub(crate) type PreApprovedDevelopers<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, (), ValueQuery>;
 
+    /// Delegatee registered for a staker on a particular smart contract
+    #[pallet::storage]
+    #[pallet::getter(fn delegations)]
+    pub type DelegatedAccounts<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::SmartContract,
+        T::AccountId
+    >;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(crate) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -233,6 +245,9 @@ pub mod pallet {
             BalanceOf<T>,
             T::SmartContract,
         ),
+        /// A delegated account has been setted to receive rewards for a contract.
+        /// \(staker account, smart contract, delegated account\)
+        DelegatedAccountSet(T::AccountId, T::SmartContract, T::AccountId)
     }
 
     #[pallet::error]
@@ -291,6 +306,8 @@ pub mod pallet {
         NotActiveStaker,
         /// Transfering nomination to the same contract
         NominationTransferToSameContract,
+        /// The caller is not auhorized to delegate rewards
+        NotAuthorizedToDelegate,
     }
 
     #[pallet::hooks]
@@ -795,9 +812,13 @@ pub mod pallet {
                     contract_id.clone(),
                     staker_reward,
                 ));
+
+                T::Currency::resolve_creating(&staker, reward_imbalance);
+            } else {
+                let delegated_account = DelegatedAccounts::<T>::get(&staker, &contract_id).unwrap_or(staker.clone());
+                T::Currency::resolve_creating(&delegated_account, reward_imbalance);
             }
 
-            T::Currency::resolve_creating(&staker, reward_imbalance);
             Self::update_staker_info(&staker, &contract_id, staker_info);
             Self::deposit_event(Event::<T>::Reward(staker, contract_id, era, staker_reward));
 
@@ -978,6 +999,35 @@ pub mod pallet {
 
             Ok(().into())
         }
+
+        /// An user or a delegated account can set an account to delegate staking rewards
+        /// staker: the account that has staked for a contract
+        /// delegated_account: the account that will receive the rewards for the staker
+        /// contract_id: the contract that the staker has staked for
+        #[pallet::weight(T::DbWeight::get().reads_writes(1,1))]
+        pub fn set_delegated_account(
+            origin: OriginFor<T>,
+            staker: T::AccountId,
+            delegated_account: T::AccountId,
+            contract_id: T::SmartContract,
+        ) -> DispatchResultWithPostInfo {
+            Self::ensure_pallet_enabled()?;
+            let signer = ensure_signed(origin)?;
+
+            match DelegatedAccounts::<T>::get(&staker, &contract_id) {
+                Some(delegated) => {
+                    ensure!(signer == staker || signer == delegated, Error::<T>::NotAuthorizedToDelegate);
+                },
+                None => {
+                    ensure!(signer == staker, Error::<T>::NotAuthorizedToDelegate);
+                }
+            }
+            
+            DelegatedAccounts::<T>::insert(&staker, &contract_id, &delegated_account);
+
+            Self::deposit_event(Event::<T>::DelegatedAccountSet(staker, contract_id, delegated_account));
+            Ok(().into())
+        } 
     }
 
     impl<T: Config> Pallet<T> {
