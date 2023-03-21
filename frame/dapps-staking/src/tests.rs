@@ -2288,14 +2288,42 @@ fn set_delegated_account_checks() {
         ), Error::<TestRuntime>::NotAuthorizedToDelegate
         );
 
-        // the staker can delegate to someone else or himself
-        assert_ok!(DappsStaking::set_delegated_account(
+        // the staker cannot delegate to himself
+        assert_noop!(DappsStaking::set_delegated_account(
             Origin::signed(staker.clone()),
             staker.clone(),
             staker.clone(),
             contract_id
+        ), Error::<TestRuntime>::CannotDelegateToStaker);
+
+        // the delegatee cannot set the staker as delegatee
+        assert_noop!(DappsStaking::set_delegated_account(
+            Origin::signed(6),
+            staker.clone(),
+            staker.clone(),
+            contract_id
+        ), Error::<TestRuntime>::CannotDelegateToStaker);
+
+        // the delegatee can remove the delegation
+        assert_ok!(DappsStaking::remove_delegate(
+            Origin::signed(6),
+            staker.clone(),
+            contract_id
         ));
 
+        assert_ok!(DappsStaking::set_delegated_account(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            5,
+            contract_id
+        ));
+
+        // the staker can remove delegation
+        assert_ok!(DappsStaking::remove_delegate(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            contract_id
+        ));
     })
 }
 
