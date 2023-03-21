@@ -547,12 +547,25 @@ pub(crate) fn assert_claim_staker(claimer: AccountId, contract_id: &MockSmartCon
     }
 
     // last event should be Reward, regardless of restaking
-    System::assert_last_event(mock::Event::DappsStaking(Event::Reward(
-        claimer,
-        contract_id.clone(),
-        claim_era,
-        calculated_reward,
-    )));
+    // If the claimer has a delegated account, the reward event emit it
+    match DelegatedAccounts::<TestRuntime>::get(claimer.clone(),contract_id.clone()){
+        Some(delegated_account) => {
+            System::assert_last_event(mock::Event::DappsStaking(Event::Reward(
+                delegated_account,
+                contract_id.clone(),
+                claim_era,
+                calculated_reward,
+            )));
+        },
+        None => {
+            System::assert_last_event(mock::Event::DappsStaking(Event::Reward(
+                claimer,
+                contract_id.clone(),
+                claim_era,
+                calculated_reward,
+            )));
+        }
+    }
 
     let (new_era, _) = final_state_current_era.staker_info.clone().claim();
     if final_state_current_era.staker_info.is_empty() {
