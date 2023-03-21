@@ -2249,15 +2249,10 @@ fn set_delegated_account_checks() {
         let staker = 3;
         let contract_id = MockSmartContract::Evm(H160::repeat_byte(0x01));
     
-        let start_era = DappsStaking::current_era();
-    
         // Prepare a scenario with different stakes
     
         assert_register(developer, &contract_id);
         assert_bond_and_stake(staker, &contract_id, 100);
-    
-        let eras_advanced = 3;
-        advance_to_era(start_era + eras_advanced);
     
         // delegate account 5 to receive rewards for account 3
         assert_ok!(DappsStaking::set_delegated_account(
@@ -2293,7 +2288,7 @@ fn set_delegated_account_checks() {
         ), Error::<TestRuntime>::NotAuthorizedToDelegate
         );
 
-        // the staker can delegate to someone else
+        // the staker can delegate to someone else or himself
         assert_ok!(DappsStaking::set_delegated_account(
             Origin::signed(staker.clone()),
             staker.clone(),
