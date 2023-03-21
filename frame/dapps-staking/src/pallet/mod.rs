@@ -247,7 +247,10 @@ pub mod pallet {
         ),
         /// A delegated account has been setted to receive rewards for a contract.
         /// \(staker account, smart contract, delegated account\)
-        DelegatedAccountSet(T::AccountId, T::SmartContract, T::AccountId)
+        DelegatedAccountSet(T::AccountId, T::SmartContract, T::AccountId),
+        /// A delegated account has been removed from a contract.
+        /// \(staker account, smart contract\)
+        DelegatedAccountRemoved(T::AccountId, T::SmartContract),
     }
 
     #[pallet::error]
@@ -308,6 +311,10 @@ pub mod pallet {
         NominationTransferToSameContract,
         /// The caller is not auhorized to delegate rewards
         NotAuthorizedToDelegate,
+        /// Cannot set staker as delegatee. In order to remove a delegate should call `remove_delegate`
+        CannotDelegateToStaker,
+        /// There is no delegatee set for this contract and staker
+        NoDelegateeSet,
     }
 
     #[pallet::hooks]
@@ -1017,6 +1024,7 @@ pub mod pallet {
             match DelegatedAccounts::<T>::get(&staker, &contract_id) {
                 Some(delegated) => {
                     ensure!(signer == staker || signer == delegated, Error::<T>::NotAuthorizedToDelegate);
+                    ensure!(staker != delegated_account, Error::<T>::CannotDelegateToStaker);
                 },
                 None => {
                     ensure!(signer == staker, Error::<T>::NotAuthorizedToDelegate);
@@ -1027,7 +1035,33 @@ pub mod pallet {
 
             Self::deposit_event(Event::<T>::DelegatedAccountSet(staker, contract_id, delegated_account));
             Ok(().into())
-        } 
+        }
+
+        /// An staker or a delegated account can remove the delegation
+        #[pallet::weight(T::DbWeight::get().reads_writes(1,1))]
+        pub fn remove_delegate(
+            origin: OriginFor<T>,
+            staker: T::AccountId,
+            contract_id: T::SmartContract,
+        ) -> DispatchResultWithPostInfo {
+            Self::ensure_pallet_enabled()?;
+            let signer = ensure_signed(origin)?;
+
+            match DelegatedAccounts::<T>::get(&staker, &contract_id) {
+                Some(delegated) => {
+                    ensure!(signer == staker || signer == delegated, Error::<T>::NotAuthorizedToDelegate);
+                },
+                None => {
+                    return Err(Error::<T>::NoDelegateeSet.into());
+                }
+            }
+            
+            DelegatedAccounts::<T>::remove(&staker, &contract_id);
+
+            Self::deposit_event(Event::<T>::DelegatedAccountRemoved(staker, contract_id));
+            Ok(().into())
+        }
+
     }
 
     impl<T: Config> Pallet<T> {
