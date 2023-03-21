@@ -15,30 +15,18 @@ pub(crate) struct MemorySnapshot {
 
 impl MemorySnapshot {
     /// Prepares a new `MemorySnapshot` struct based on the given arguments.
-    /// If the account delegated the rewards to another account, the free balance will be that of the account
     pub(crate) fn all(
         era: EraIndex,
         contract_id: &MockSmartContract<AccountId>,
         account: AccountId,
     ) -> Self {
-        if let Some(delegated_account) = DelegatedAccounts::<TestRuntime>::get(account, contract_id) {
-           return Self {
-                era_info: DappsStaking::general_era_info(era).unwrap(),
-                dapp_info: RegisteredDapps::<TestRuntime>::get(contract_id).unwrap(),
-                staker_info: GeneralStakerInfo::<TestRuntime>::get(&account, contract_id),
-                contract_info: DappsStaking::contract_stake_info(contract_id, era).unwrap_or_default(),
-                ledger: DappsStaking::ledger(&account),
-                free_balance: <TestRuntime as Config>::Currency::free_balance(&delegated_account),
-            };
-        } else {
-            return Self {
-                era_info: DappsStaking::general_era_info(era).unwrap(),
-                dapp_info: RegisteredDapps::<TestRuntime>::get(contract_id).unwrap(),
-                staker_info: GeneralStakerInfo::<TestRuntime>::get(&account, contract_id),
-                contract_info: DappsStaking::contract_stake_info(contract_id, era).unwrap_or_default(),
-                ledger: DappsStaking::ledger(&account),
-                free_balance: <TestRuntime as Config>::Currency::free_balance(&account),
-            };
+         Self {
+            era_info: DappsStaking::general_era_info(era).unwrap(),
+            dapp_info: RegisteredDapps::<TestRuntime>::get(contract_id).unwrap(),
+            staker_info: GeneralStakerInfo::<TestRuntime>::get(&account, contract_id),
+            contract_info: DappsStaking::contract_stake_info(contract_id, era).unwrap_or_default(),
+            ledger: DappsStaking::ledger(&account),
+            free_balance: <TestRuntime as Config>::Currency::free_balance(&account),
         }
         
     }
@@ -538,6 +526,8 @@ pub(crate) fn assert_claim_staker(claimer: AccountId, contract_id: &MockSmartCon
         &init_state_current_era,
         &final_state_current_era,
         calculated_reward,
+        claimer.clone(),
+        contract_id.clone(),
     );
 
     // check for stake event if restaking is performed
@@ -594,6 +584,8 @@ fn assert_restake_reward(
     init_state_current_era: &MemorySnapshot,
     final_state_current_era: &MemorySnapshot,
     reward: Balance,
+    claimer: AccountId,
+    contract_id: MockSmartContract<AccountId>,
 ) {
     if DappsStaking::should_restake_reward(
         init_state_current_era.ledger.reward_destination,
@@ -619,10 +611,19 @@ fn assert_restake_reward(
         );
     } else {
         // staked values should remain the same, and free balance increase
-        assert_eq!(
-            init_state_current_era.free_balance + reward,
-            final_state_current_era.free_balance
-        );
+
+        if let Some(_) = DelegatedAccounts::<TestRuntime>::get(claimer.clone(), contract_id) {
+            // if a delegatee is set, the free balance of staker should not increase
+            assert_eq!(
+                init_state_current_era.free_balance,
+                final_state_current_era.free_balance
+            );
+        } else {
+            assert_eq!(
+                init_state_current_era.free_balance + reward,
+                final_state_current_era.free_balance
+            );
+        }
         assert_eq!(
             init_state_current_era.era_info.staked,
             final_state_current_era.era_info.staked
