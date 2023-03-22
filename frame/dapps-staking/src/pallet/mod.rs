@@ -821,16 +821,13 @@ pub mod pallet {
                 ));
 
                 T::Currency::resolve_creating(&staker, reward_imbalance);
-
-                Self::deposit_event(Event::<T>::Reward(staker.clone(), contract_id.clone(), era, staker_reward));
             } else {
                 let delegated_account = DelegatedAccounts::<T>::get(&staker, &contract_id).unwrap_or(staker.clone());
                 T::Currency::resolve_creating(&delegated_account, reward_imbalance);
-
-                Self::deposit_event(Event::<T>::Reward(delegated_account.clone(), contract_id.clone(), era, staker_reward));
             }
 
             Self::update_staker_info(&staker, &contract_id, staker_info);
+            Self::deposit_event(Event::<T>::Reward(staker, contract_id, era, staker_reward));
             
 
             Ok(Some(if should_restake_reward {
