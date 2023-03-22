@@ -11,6 +11,8 @@ pub(crate) struct MemorySnapshot {
     contract_info: ContractStakeInfo<Balance>,
     free_balance: Balance,
     ledger: AccountLedger<Balance>,
+    delegate: Option<AccountId>,
+    delegate_free_balance: Balance,
 }
 
 impl MemorySnapshot {
@@ -20,14 +22,22 @@ impl MemorySnapshot {
         contract_id: &MockSmartContract<AccountId>,
         account: AccountId,
     ) -> Self {
-        Self {
+        let delegate_balance = if let Some(delegate) = DelegatedAccounts::<TestRuntime>::get(&account, contract_id) {
+            <TestRuntime as Config>::Currency::free_balance(&delegate)
+        } else {
+            0
+        };
+         Self {
             era_info: DappsStaking::general_era_info(era).unwrap(),
             dapp_info: RegisteredDapps::<TestRuntime>::get(contract_id).unwrap(),
             staker_info: GeneralStakerInfo::<TestRuntime>::get(&account, contract_id),
             contract_info: DappsStaking::contract_stake_info(contract_id, era).unwrap_or_default(),
             ledger: DappsStaking::ledger(&account),
             free_balance: <TestRuntime as Config>::Currency::free_balance(&account),
+            delegate: DelegatedAccounts::<TestRuntime>::get(&account, contract_id),
+            delegate_free_balance: delegate_balance,
         }
+        
     }
 
     /// Prepares a new `MemorySnapshot` struct but only with contract-related info
@@ -40,6 +50,8 @@ impl MemorySnapshot {
             contract_info: DappsStaking::contract_stake_info(contract_id, era).unwrap_or_default(),
             ledger: Default::default(),
             free_balance: Default::default(),
+            delegate: None,
+            delegate_free_balance: Default::default(),
         }
     }
 }
@@ -550,6 +562,8 @@ pub(crate) fn assert_claim_staker(claimer: AccountId, contract_id: &MockSmartCon
         claim_era,
         calculated_reward,
     )));
+        
+    
 
     let (new_era, _) = final_state_current_era.staker_info.clone().claim();
     if final_state_current_era.staker_info.is_empty() {
@@ -606,10 +620,23 @@ fn assert_restake_reward(
         );
     } else {
         // staked values should remain the same, and free balance increase
-        assert_eq!(
-            init_state_current_era.free_balance + reward,
-            final_state_current_era.free_balance
-        );
+        if let Some(_) = init_state_current_era.delegate {
+            // if a delegatee is set, the free balance of staker should not increase
+            assert_eq!(
+                init_state_current_era.free_balance,
+                final_state_current_era.free_balance
+            );
+            // the free balance of delegatee should increase
+            assert_eq!(
+                init_state_current_era.delegate_free_balance + reward,
+                final_state_current_era.delegate_free_balance
+            );
+        } else {
+            assert_eq!(
+                init_state_current_era.free_balance + reward,
+                final_state_current_era.free_balance
+            );
+        }
         assert_eq!(
             init_state_current_era.era_info.staked,
             final_state_current_era.era_info.staked

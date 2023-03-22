@@ -2172,3 +2172,148 @@ pub fn set_contract_stake_info() {
         );
     })
 }
+
+#[test]
+fn claim_delegated_account() {
+    ExternalityBuilder::build().execute_with(|| {
+        initialize_first_block();
+    
+        let first_developer = 1;
+        let first_staker = 3;
+        let first_contract_id = MockSmartContract::Evm(H160::repeat_byte(0x01));
+    
+        let start_era = DappsStaking::current_era();
+    
+        // Prepare a scenario with different stakes
+    
+        assert_register(first_developer, &first_contract_id);
+        assert_bond_and_stake(first_staker, &first_contract_id, 100);
+    
+        let eras_advanced = 3;
+        advance_to_era(start_era + eras_advanced);
+
+        let free_balance_delegatee_before_claim = <TestRuntime as Config>::Currency::free_balance(&5);
+    
+        // delegate account 5 to receive rewards for account 3
+        assert_ok!(DappsStaking::set_delegated_account(
+            Origin::signed(first_staker.clone()),
+            first_staker.clone(),
+            5,
+            first_contract_id
+        ));
+
+        // set reward destination to free balance
+        assert_ok!(DappsStaking::set_reward_destination(
+            Origin::signed(first_staker.clone()),
+            RewardDestination::FreeBalance
+        ));
+    
+        // Ensure that all past eras can be claimed
+        let current_era = DappsStaking::current_era();
+        for _ in start_era..current_era {
+            assert_claim_staker(first_staker, &first_contract_id);
+        }
+
+        let free_balance_delegatee_after_claim = <TestRuntime as Config>::Currency::free_balance(&5);
+        
+        // check that the free balance of delegatee has increased
+        assert!(free_balance_delegatee_after_claim > free_balance_delegatee_before_claim);
+    
+        // Shouldn't be possible to claim current era.
+        // Also, previous claim calls should have claimed everything prior to current era.
+        assert_noop!(
+            DappsStaking::claim_staker(Origin::signed(first_staker), first_contract_id.clone()),
+            Error::<TestRuntime>::EraOutOfBounds
+        );
+    })
+}
+
+#[test]
+fn set_delegated_account_checks() {
+    ExternalityBuilder::build().execute_with(|| {
+        initialize_first_block();
+    
+        let developer = 1;
+        let staker = 3;
+        let contract_id = MockSmartContract::Evm(H160::repeat_byte(0x01));
+    
+        // Prepare a scenario with different stakes
+    
+        assert_register(developer, &contract_id);
+        assert_bond_and_stake(staker, &contract_id, 100);
+    
+        // delegate account 5 to receive rewards for account 3
+        assert_ok!(DappsStaking::set_delegated_account(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            5,
+            contract_id
+        ));
+
+        // cannot set delegated account if no staker o delegate
+        assert_noop!(DappsStaking::set_delegated_account(
+            Origin::signed(6),
+            staker.clone(),
+            5,
+            contract_id
+        ), Error::<TestRuntime>::NotAuthorizedToDelegate
+        );
+
+        // the delegated account can delegate to someone else
+        assert_ok!(DappsStaking::set_delegated_account(
+            Origin::signed(5),
+            staker.clone(),
+            6,
+            contract_id
+        ));
+
+        // the previous delegated account cannot delegate anymore
+        assert_noop!(DappsStaking::set_delegated_account(
+            Origin::signed(5),
+            staker.clone(),
+            6,
+            contract_id
+        ), Error::<TestRuntime>::NotAuthorizedToDelegate
+        );
+
+        // the staker cannot delegate to himself
+        assert_noop!(DappsStaking::set_delegated_account(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            staker.clone(),
+            contract_id
+        ), Error::<TestRuntime>::CannotDelegateToStaker);
+
+        // the delegatee cannot set the staker as delegatee
+        assert_noop!(DappsStaking::set_delegated_account(
+            Origin::signed(6),
+            staker.clone(),
+            staker.clone(),
+            contract_id
+        ), Error::<TestRuntime>::CannotDelegateToStaker);
+
+        // the delegatee can remove the delegation
+        assert_ok!(DappsStaking::remove_delegate(
+            Origin::signed(6),
+            staker.clone(),
+            contract_id
+        ));
+
+        assert_ok!(DappsStaking::set_delegated_account(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            5,
+            contract_id
+        ));
+
+        // the staker can remove delegation
+        assert_ok!(DappsStaking::remove_delegate(
+            Origin::signed(staker.clone()),
+            staker.clone(),
+            contract_id
+        ));
+    })
+}
+
+
+
